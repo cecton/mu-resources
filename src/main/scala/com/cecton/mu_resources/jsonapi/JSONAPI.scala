@@ -1,146 +1,91 @@
 package com.cecton.mu_resources.jsonapi
 
-import co.blocke.scalajack._
-import co.blocke.scalajack.json.JsonKind
-import scala.reflect.runtime.universe.TypeTag
+import io.circe._
+import io.circe.syntax._
 
-trait Relationship
+sealed trait Response {
+  var jsonapi: JsonObject = JsonObject.empty
+  var links: JsonObject = JsonObject.empty
 
-case class RelationshipToOne(
-  val links: Option[Links] = None,
-  val data: ResourceIdentifier,
-  val meta: Option[Map[String, Any]] = None) extends Relationship
+  def renderMeta: Map[String, Json] = Seq(
+      if( jsonapi.nonEmpty ) Seq("jsonapi" -> jsonapi.asJson) else Seq(),
+      if( links.nonEmpty ) Seq("links" -> links.asJson) else Seq()
+    ).flatten.toMap
 
-case class RelationshipToMany(
-  val links: Option[Links] = None,
-  val data: List[ResourceIdentifier],
-  val meta: Option[Map[String, Any]] = None) extends Relationship
+  def renderContent: Map[String, Json]
 
-case class RelationshipLinks(
-  val links: Links,
-  val meta: Option[Map[String, Any]] = None) extends Relationship
+  def asJson: Json = (renderMeta ++ renderContent).asJson
 
-case class RelationshipMeta(
-  val links: Option[Links] = None,
-  val meta: Map[String, Any]) extends Relationship
-
-case class Resource(
-  val `type`: String,
-  val id: String,
-  val attributes: Option[Map[String, Any]] = None,
-  val relationships: Option[Map[String, Relationship]] = None,
-  val links: Option[Links] = None,
-  val meta: Option[Map[String, Any]] = None) {
-
-  lazy val toIdentifier = ResourceIdentifier(`type`, id, meta)
+  def withLinks(x: JsonObject): Response
 
 }
 
-case class NewResource(
-  val `type`: String,
-  val attributes: Option[Map[String, Any]] = None,
-  val relationships: Option[Map[String, Relationship]] = None,
-  val links: Option[Links] = None,
-  val meta: Option[Map[String, Any]] = None)
+object Response {
 
-case class ResourceIdentifier(
-  val `type`: String,
-  val id: String,
-  val meta: Option[Map[String, Any]] = None)
+  sealed trait Resource extends Response {
+    val data: Json
 
-case class Link(val href: String, val meta: Map[String, Any])
+    def renderContent = Map("data" -> data)
 
-case class Links(
-  val self: Option[Either[String, Link]] = None,
-  val related: Option[Either[String, Link]] = None,
-  val first: Option[Either[String, Link]] = None,
-  val last: Option[Either[String, Link]] = None,
-  val prev: Option[Either[String, Link]] = None,
-  val next: Option[Either[String, Link]] = None)
+    def withLinks(x: JsonObject): Response
+  }
 
-trait Response {
-  val jsonapi: Option[Map[String, Any]] = None
-  val links: Option[Links] = None
-}
+  case class MissingResource() extends Resource {
+    val data = Json.Null
 
-case class DataResponse(
-  val data: Either[Resource, List[Resource]],
-  val meta: Option[Map[String, Any]] = None,
-  val included: Option[List[Resource]] = None,
-  override val jsonapi: Option[Map[String, Any]] = None,
-  override val links: Option[Links] = None) extends Response {
-
-    lazy val resources: List[Resource] = data match {
-      case Left(resource: Resource) => List(resource)
-      case Right(resources: List[Resource]) => resources
+    def withLinks(x: JsonObject) = {
+      val response = this.copy()
+      response.links = x
+      response
     }
 
-    def validate = {
-      val resourceIdentifiers: Seq[ResourceIdentifier] = resources
-        .collect {
-          case resource if resource.relationships.nonEmpty =>
-            resource.relationships.get.values.collect {
-              case relationship: RelationshipToOne => List(relationship.data)
-              case relationship: RelationshipToMany => relationship.data
-            }
-            .flatten
-        }
-        .flatten
-        .toSeq
-      if (included.nonEmpty)
-      {
-        val notReferenced = included.get.filterNot {
-          resource => resourceIdentifiers.contains(resource.toIdentifier)
-        }
-        if (notReferenced.nonEmpty)
-          throw new RuntimeException(
-            "The following included are not referenced in the data: "
-            + notReferenced.mkString(", "))
-      }
+  }
+
+  case class SingleResource(
+      val id: Any, val `type`: String, val resource: JsonObject)
+      extends Resource {
+
+    val data = Map[String, Json](
+      "id" -> id.asJson,
+      "type" -> `type`.asJson,
+      "attributes" -> resource.asJson).asJson
+
+    def withLinks(x: JsonObject) = {
+      val response = this.copy()
+      response.links = x
+      response
     }
+
+  }
+
+  case class MultiResource(
+      val resources: Seq[(Int, String, JsonObject)])
+      extends Resource {
+
+    private def mkData(x: (Int, String, JsonObject)) = Map[String, Json](
+      "id" -> x._1.asJson,
+      "type" -> x._2.asJson,
+      "attributes" -> x._3.asJson)
+
+    val data = resources.map(mkData(_).asJson).asJson
+
+    def withLinks(x: JsonObject) = {
+      val response = this.copy()
+      response.links = x
+      response
+    }
+
+  }
+
 }
-
-case class ErrorsResponse(
-  val errors: List[Map[String, Any]],
-  val meta: Option[Map[String, Any]] = None,
-  override val jsonapi: Option[Map[String, Any]] = None,
-  override val links: Option[Links] = None) extends Response
-
-case class MetaResponse(
-  val meta: Map[String, Any],
-  override val jsonapi: Option[Map[String, Any]] = None,
-  override val links: Option[Links] = None) extends Response
 
 object `package` {
-  private val scalaJack = ScalaJack()
-  private val visitorContext = VisitorContext().copy(
-      //hintMap = Map("default" -> "type"),
-      customHandlers = Map(
-        "scala.util.Either" -> CustomReadRender(
-        {
-            case (j: JsonKind, js: String) =>
-              throw new UnsupportedOperationException("Parse Links from JSON")
-        },
-        {
-            case (j: JsonKind, thing: Either[Any, Any]) => thing.merge match {
-              case x: Link => render(x)
-              case x: Resource => render(x)
-              case x: String => render(x)
-              case x =>
-                throw new UnsupportedOperationException(s"Unknown type: ${x.getClass}")
-            }
-        }),
-        "com.cecton.mu_resources.jsonapi.Relationship" -> CustomReadRender(
-        {
-            case (j: JsonKind, js: String) =>
-              throw new UnsupportedOperationException("Parse Links from JSON")
-        },
-        {
-            case (j: JsonKind, thing: RelationshipToOne) =>
-              throw new UnsupportedOperationException(s"Unknown type")
-        })
-      ))
 
-  def render[T](something: T)(implicit tt: TypeTag[T]): String =
-    scalaJack.render[T](something, visitorContext)
+  implicit val idEncoder: Encoder[Any] = new Encoder[Any] {
+    final def apply(value: Any): Json = value match {
+      case value: Int => value.asJson
+      case value: String => value.asJson
+    }
+  }
+
 }

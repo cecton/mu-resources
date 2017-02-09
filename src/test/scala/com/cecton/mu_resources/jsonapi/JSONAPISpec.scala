@@ -1,55 +1,43 @@
 package com.cecton.mu_resources.jsonapi
 
+import io.circe._, io.circe.generic.auto._, io.circe.syntax._
 import org.scalatest.{ FunSpec, GivenWhenThen, BeforeAndAfterAll }
 import org.scalatest.Matchers._
 import scala.util.Try
 
 class JSONAPISpec extends FunSpec with GivenWhenThen with BeforeAndAfterAll {
-  describe("Rendering") {
-    it("renders link objects") {
-      val js = render(Link("http://example.com/articles/1/comments", Map("count" -> 10)))
-      js should equal ("""{"href":"http://example.com/articles/1/comments","meta":{"count":10}}""")
+
+  import com.cecton.mu_resources.resource._
+  import Response.{MissingResource, SingleResource, MultiResource}
+
+  case class A(val x: String) extends Resource
+
+  describe("Response") {
+
+    it("renders MissingResourceResponse") {
+      val response = MissingResource()
+      response.asJson.noSpaces should be ("""{"data":null}""")
     }
 
-    it("renders links URL") {
-      val js = render(Links(self = Some(Left("http://example.com/posts"))))
-      js should equal ("""{"self":"http://example.com/posts"}""")
+    it("renders SingleResourceResponse") {
+      val resource = A("foo")
+      val response = SingleResource(1, "a", resource.asJsonObject)
+      response.asJson.noSpaces should be ("""{"data":{"id":1,"type":"a","attributes":{"x":"foo"}}}""")
     }
 
-    it("renders links link object") {
-      val js = render(Links(self = Some(Right(Link("http://example.com/articles/1/comments", Map("count" -> 10))))))
-      js should equal ("""{"self":{"href":"http://example.com/articles/1/comments","meta":{"count":10}}}""")
+    it("renders MultiResourceResponse") {
+      val resources = List((1, "a", A("foo")), (2, "a", A("bar")))
+      val response = MultiResource(resources.map(x => (x._1, x._2, x._3.asJsonObject)))
+      response.asJson.noSpaces should be ("""{"data":[{"id":1,"type":"a","attributes":{"x":"foo"}},{"id":2,"type":"a","attributes":{"x":"bar"}}]}""")
     }
 
-    it("renders links null") {
-      val js = render(Links(self = Some(null)))
-      js should equal ("""{"self":null}""")
+    it("renders links") {
+      val response1 = MissingResource()
+      val response2 = response1.withLinks(Map("foo" -> "bar").asJsonObject)
+      response2.asJson.noSpaces should equal ("""{"links":{"foo":"bar"},"data":null}""")
+      response1.asJson.noSpaces should not equal ("""{"links":{"foo":"bar"},"data":null}""")
     }
 
-    it("renders a data response") {
-      val js = render(DataResponse(
-        data=Left(Resource("something", "1", relationships=Some(Map(
-          "author" -> new RelationshipToOne(data=ResourceIdentifier("people", "9")))))),
-        included=Some(List(Resource("people", "9")))))
-      js should equal ("""{"data":{"type":"something","id":"1","relationships":{"author":{"data":{"type":"people","id":"9"}}}},"included":[{"type":"people","id":"9"}]}""")
-    }
   }
 
-  describe("Validation") {
-    it("validates") {
-      val response = DataResponse(
-        data=Left(Resource("something", "1", relationships=Some(Map(
-          "attr" -> new RelationshipToOne(data=ResourceIdentifier("people", "9")))))),
-        included=Some(List(Resource("people", "9"))))
-      Try(response.validate).isSuccess should equal (true)
-    }
-
-    it("ensures there are no extra objects included") {
-      val response = DataResponse(
-        data=Left(Resource("something", "1", relationships=Some(Map(
-          "attr" -> new RelationshipToOne(data=ResourceIdentifier("people", "8")))))),
-        included=Some(List(Resource("people", "9"))))
-      Try(response.validate).isFailure should equal (true)
-    }
-  }
 }
