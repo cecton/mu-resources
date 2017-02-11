@@ -1,85 +1,55 @@
 package com.cecton.mu_resources.jsonapi
 
 import io.circe._
+import io.circe.generic.semiauto._
 import io.circe.syntax._
 
 sealed trait Response {
-  var jsonapi: JsonObject = JsonObject.empty
-  var links: JsonObject = JsonObject.empty
-
-  def renderMeta: Map[String, Json] = Seq(
-      if( jsonapi.nonEmpty ) Seq("jsonapi" -> jsonapi.asJson) else Seq(),
-      if( links.nonEmpty ) Seq("links" -> links.asJson) else Seq()
-    ).flatten.toMap
-
-  def renderContent: Map[String, Json]
-
-  def asJson: Json = (renderMeta ++ renderContent).asJson
-
   def withLinks(x: JsonObject): Response
 
+  def withJsonapi(x: JsonObject): Response
 }
+
+case class Error(val id: Json = Json.Null)
+
+case class Data(val id: Json, val `type`: String, val attributes: JsonObject)
 
 object Response {
 
-  sealed trait Resource extends Response {
-    val data: Json
+  case class Data(
+      val data: Json,
+      val errors: Option[Seq[Error]] = None,
+      val meta: Option[JsonObject] = None,
+      val jsonapi: Option[JsonObject] = None,
+      val links: Option[JsonObject] = None)
+      extends Response {
 
-    def renderContent = Map("data" -> data)
+    def withLinks(x: JsonObject) = this.copy(links=Some(x))
 
-    def withLinks(x: JsonObject): Response
+    def withJsonapi(x: JsonObject) = this.copy(jsonapi=Some(x))
   }
 
-  case class MissingResource() extends Resource {
-    val data = Json.Null
+  case class Errors(
+      val errors: Seq[Error],
+      val meta: Option[JsonObject] = None,
+      val jsonapi: Option[JsonObject] = None,
+      val links: Option[JsonObject] = None)
+      extends Response {
 
-    def withLinks(x: JsonObject) = {
-      val response = this.copy()
-      response.links = x
-      response
-    }
+    def withLinks(x: JsonObject) = this.copy(links=Some(x))
 
-  }
-
-  case class SingleResource(
-      val id: Any, val `type`: String, val resource: JsonObject)
-      extends Resource {
-
-    val data = Map[String, Json](
-      "id" -> id.asJson,
-      "type" -> `type`.asJson,
-      "attributes" -> resource.asJson).asJson
-
-    def withLinks(x: JsonObject) = {
-      val response = this.copy()
-      response.links = x
-      response
-    }
-
-  }
-
-  case class MultiResource(
-      val resources: Seq[(Int, String, JsonObject)])
-      extends Resource {
-
-    private def mkData(x: (Int, String, JsonObject)) = Map[String, Json](
-      "id" -> x._1.asJson,
-      "type" -> x._2.asJson,
-      "attributes" -> x._3.asJson)
-
-    val data = resources.map(mkData(_).asJson).asJson
-
-    def withLinks(x: JsonObject) = {
-      val response = this.copy()
-      response.links = x
-      response
-    }
-
+    def withJsonapi(x: JsonObject) = this.copy(jsonapi=Some(x))
   }
 
 }
 
 object `package` {
+
+  private def removesNull[A](e: ObjectEncoder[A]) = removesNullExcept(e)
+
+  private def removesNullExcept[A](e: ObjectEncoder[A], except: String*) =
+    e.mapJsonObject(x => x.filter(
+      y => except.contains(y._1) || !y._2.isNull))
 
   implicit val idEncoder: Encoder[Any] = new Encoder[Any] {
     final def apply(value: Any): Json = value match {
@@ -87,5 +57,13 @@ object `package` {
       case value: String => value.asJson
     }
   }
+
+  implicit val errorEncoder: Encoder[Error] = removesNull(deriveEncoder[Error])
+
+  implicit val responseDataEncoder: Encoder[Response.Data] =
+    removesNullExcept(deriveEncoder[Response.Data], "data")
+
+  implicit val responseErrorsEncoder: Encoder[Response.Errors] =
+    removesNull(deriveEncoder[Response.Errors])
 
 }
