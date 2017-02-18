@@ -23,10 +23,14 @@ resolvers += Classpaths.typesafeReleases
 libraryDependencies ++= Seq(
   "org.scalatra" %% "scalatra" % ScalatraVersion,
   "org.scalatra" %% "scalatra-scalate" % ScalatraVersion,
-  "org.scalatra" %% "scalatra-scalatest" % ScalatraVersion % "test",
   "ch.qos.logback" % "logback-classic" % "1.1.5" % "runtime",
   "org.eclipse.jetty" % "jetty-webapp" % "9.2.15.v20160210" % "container",
-  "javax.servlet" % "javax.servlet-api" % "3.1.0" % "provided"
+  "javax.servlet" % "javax.servlet-api" % "3.1.0" % "provided",
+  "net.databinder.dispatch" %% "dispatch-core" % "0.11.2",
+
+  "org.scalatra" %% "scalatra-scalatest" % ScalatraVersion % "test",
+  "org.scalatest" %% "scalatest" % "3.0.1" % "test",
+  "ws.unfiltered" %% "unfiltered-netty-server" % "0.9.0-beta2" % "test"
 )
 
 libraryDependencies ++= Seq(
