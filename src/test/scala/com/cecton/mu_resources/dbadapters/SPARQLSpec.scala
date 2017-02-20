@@ -71,11 +71,10 @@ class SPARQLSpec extends AsyncFlatSpec {
 
   val adapter = SPARQL(localhost)
 
-  case class Book(val title: String) extends Resource
+  case class Book(val title: Option[String]) extends Resource
   case object ResourceBook extends adapter.ResourceAdapter {
-    def toResource(x: Seq[adapter.JSONRow]) = {
-      val titles = x.filter(y => y.p.value.asString.get == "http://example.org/book/title")
-      Book(titles.head.o.value.asString.get)
+    def toResource = { implicit rows =>
+      Book(getString("http://example.org/book/title"))
     }
   }
 

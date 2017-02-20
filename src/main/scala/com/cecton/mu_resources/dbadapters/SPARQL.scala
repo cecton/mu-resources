@@ -19,7 +19,12 @@ case class SPARQL(val selectReq: Req) {
 
   trait ResourceAdapter {
 
-    def toResource(x: Seq[JSONRow]): Resource
+    def toResource: Seq[JSONRow] => Resource
+
+    def getString(p: String)(implicit rows: Seq[JSONRow]): Option[String] = rows
+      .filter { x => x.p.value.asString.get == p }
+      .headOption
+      .flatMap { x => x.o.value.asString }
 
     def list()(implicit ctx: ExecutionContext): Future[Iterable[Resource]] = {
       val prom = Promise[Iterable[Resource]]()
@@ -28,7 +33,8 @@ case class SPARQL(val selectReq: Req) {
       dispatch.Http(request OK as.String) onComplete {
         case Success(content) =>
           val bindings = decode[JSONResponse](content).right.get.results.bindings
-          prom.complete(Try(bindings.groupBy(_.s.value.asString.get).values.map(toResource)))
+          val items = bindings.groupBy(_.s.value.asString.get).values
+          prom.complete(Try(items.map { rows => toResource(rows) }))
         case Failure(exception) =>
           println(exception)
           prom.failure(exception)
