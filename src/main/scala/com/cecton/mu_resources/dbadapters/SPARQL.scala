@@ -9,7 +9,8 @@ import scala.util.{Failure, Success, Try}
 
 import com.cecton.mu_resources.resource.Resource
 
-case class SPARQL(val selectReq: Req) {
+trait SPARQL {
+  val selectReq: Req
 
   case class JSONResponse(val head: JSONResultHead, val results: JSONResults)
   case class JSONResultHead(val vars: Seq[String])

@@ -65,18 +65,23 @@ class SPARQLSpec extends AsyncFlatSpec {
 
   }
 
-  lazy val localhost: Req = host("127.0.0.1", server.port)
-
-  behavior of "ResourceAdapter"
-
-  val adapter = SPARQL(localhost)
+  // Resources
 
   case class Book(val title: Option[String]) extends Resource
-  case object ResourceBook extends adapter.ResourceAdapter {
+
+  // Database adapter
+
+  case object MockDatabase extends SPARQL {
+    val selectReq = host("127.0.0.1", server.port)
+  }
+
+  case object ResourceBook extends MockDatabase.ResourceAdapter {
     def toResource = { implicit rows =>
       Book(getString("http://example.org/book/title"))
     }
   }
+
+  behavior of "ResourceAdapter"
 
   it should "list existing resources" in {
     val res = ResourceBook.list
