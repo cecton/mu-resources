@@ -16,7 +16,13 @@ trait SPARQL {
   case class JSONResultHead(val vars: Seq[String])
   case class JSONResults(val bindings: Seq[JSONRow])
   case class JSONRow(val s: JSONValue, val p: JSONValue, val o: JSONValue)
-  case class JSONValue(val `type`: String, val value: Json)
+  case class JSONValue(val `type`: String, val value: Json) {
+    def isUri = `type` == "uri"
+    def isLiteral = `type` == "literal"
+
+    def getUri = if( isUri ) value.asString else None
+    def getLiteral = if( isLiteral ) value.asString else None
+  }
 
   case class ResourceContext(val id: String, val items: Map[String, Seq[JSONRow]]) {
     val me = items(id)
@@ -32,7 +38,7 @@ trait SPARQL {
     def getString(p: String)(implicit context: ResourceContext): Option[String] =
       context.me
         .collect {
-          case x if x.p.value.asString == Some(p) => x.o.value.asString
+          case x if x.p.getUri == Some(p) => x.o.getLiteral
         }
         .flatten
         .headOption
@@ -40,8 +46,8 @@ trait SPARQL {
     def getOne2One(p: String)(implicit context: RelationshipsContext): Seq[One2One] = {
       context
         .bindings
-        .filter(_.p.value.asString == Some(p))
-        .map(x => (x.s.value.asString, x.o.value.asString))
+        .filter(_.p.getUri == Some(p))
+        .map(x => (x.s.getUri, x.o.getUri))
         .collect {
           case (Some(x), Some(y)) =>
             One2One(context.resources(x), context.resources(y))
